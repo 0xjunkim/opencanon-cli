@@ -50,23 +50,50 @@ export function buildRepoModel(input: GitHubRepoInput): RepoModel {
     }
   }
 
-  // Extract episode slugs from tree: stories/<slug>/
+  // Extract episode slugs from tree.
+  // Supports two layouts:
+  //   Flat (CLI):   stories/<epSlug>/metadata.json
+  //   Nested (Web): stories/<storySlug>/episodes/<epSlug>/metadata.json
   const episodes = new Set<string>()
+
+  // Flat: stories/<slug>/ (depth-2 tree entry)
   for (const entry of tree) {
     if (entry.type === "tree" && entry.path.startsWith("stories/")) {
       const parts = entry.path.split("/")
-      if (parts.length === 2) {
-        episodes.add(parts[1])
+      if (parts.length === 2) episodes.add(parts[1])
+    }
+  }
+
+  // Nested: stories/<storySlug>/episodes/<epSlug>/ (depth-4 tree entry)
+  for (const entry of tree) {
+    if (entry.type === "tree" && entry.path.startsWith("stories/")) {
+      const parts = entry.path.split("/")
+      // stories / storySlug / episodes / epSlug
+      if (parts.length === 4 && parts[2] === "episodes") {
+        episodes.add(parts[3])
       }
     }
   }
 
-  // Parse story metadata from pre-fetched file contents
+  // Parse story metadata — try nested path first, then flat
   const stories = new Map<string, ReturnType<typeof parseMetadata>>()
-  for (const slug of episodes) {
-    const metaContent = files.get(`stories/${slug}/metadata.json`)
-    if (metaContent) {
-      stories.set(slug, parseMetadata(JSON.parse(metaContent)))
+  for (const entry of tree) {
+    if (
+      entry.type === "blob" &&
+      entry.path.startsWith("stories/") &&
+      entry.path.endsWith("/metadata.json")
+    ) {
+      const parts = entry.path.split("/")
+      // Flat: stories/<slug>/metadata.json → parts.length === 3
+      // Nested: stories/<storySlug>/episodes/<epSlug>/metadata.json → parts.length === 5
+      let epSlug: string | null = null
+      if (parts.length === 3) epSlug = parts[1]
+      else if (parts.length === 5 && parts[2] === "episodes") epSlug = parts[3]
+      if (!epSlug) continue
+      const metaContent = files.get(entry.path)
+      if (metaContent) {
+        stories.set(epSlug, parseMetadata(JSON.parse(metaContent)))
+      }
     }
   }
 
@@ -115,14 +142,26 @@ export function buildRepoModelAny(input: GitHubRepoInput): RepoModelAny {
     if (entry.type === "tree" && entry.path.startsWith("stories/")) {
       const parts = entry.path.split("/")
       if (parts.length === 2) episodes.add(parts[1])
+      else if (parts.length === 4 && parts[2] === "episodes") episodes.add(parts[3])
     }
   }
 
   const stories = new Map<string, ParsedMetadataResult>()
-  for (const slug of episodes) {
-    const metaContent = files.get(`stories/${slug}/metadata.json`)
-    if (metaContent) {
-      stories.set(slug, parseMetadataAny(JSON.parse(metaContent)))
+  for (const entry of tree) {
+    if (
+      entry.type === "blob" &&
+      entry.path.startsWith("stories/") &&
+      entry.path.endsWith("/metadata.json")
+    ) {
+      const parts = entry.path.split("/")
+      let epSlug: string | null = null
+      if (parts.length === 3) epSlug = parts[1]
+      else if (parts.length === 5 && parts[2] === "episodes") epSlug = parts[3]
+      if (!epSlug) continue
+      const metaContent = files.get(entry.path)
+      if (metaContent) {
+        stories.set(epSlug, parseMetadataAny(JSON.parse(metaContent)))
+      }
     }
   }
 
