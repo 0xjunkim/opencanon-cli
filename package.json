@@ -1,7 +1,7 @@
 {
   "name": "@opencanon/canon",
-  "version": "0.4.0",
-  "description": "Canon worldbuilding CLI — scaffold, validate, and manage shared fiction universes",
+  "version": "0.4.4",
+  "description": "Canon worldbuilding CLI \u2014 scaffold, validate, and manage shared fiction universes",
   "type": "module",
   "bin": {
     "canon": "dist/cli.js"
