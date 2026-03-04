@@ -180,11 +180,16 @@ export const pushCommand = new Command("push")
     }
 
     // ── Step 4: canon publish ─────────────────────────────────────────────
+    // Note: git push (step 3) already succeeded at this point.
+    // Publish failure = inconsistent state (GitHub up-to-date, web app not aware).
     if (opts.publish !== false) {
       process.stdout.write("  4/4  canon publish... ")
       if (!opts.dryRun) {
         if (!token) {
-          console.log("⚠ (skipped — no token, run: canon login)")
+          console.log("⚠ (skipped — no token)")
+          console.log("")
+          console.log("  ⚠ Code pushed to GitHub but NOT published on opencanon.")
+          console.log(`     Run: canon publish  to sync web app`)
         } else {
           const api = new ApiClient(host, token)
           const result = await api.publish(owner, repo)
@@ -195,12 +200,18 @@ export const pushCommand = new Command("push")
           } else {
             console.log("✗")
             const code = result.code
+            // Code is on GitHub but web app doesn't know — warn explicitly
+            console.error("")
+            console.error("  ⚠ INCONSISTENT STATE: code pushed to GitHub but publish failed.")
+            console.error("     Your episode is on GitHub but NOT visible on opencanon.")
+            console.error("")
             if (code === "INVALID_TOKEN") {
-              console.error("     invalid or expired token — run: canon login")
+              console.error("     Fix: canon login  →  canon publish")
             } else if (code === "NOT_REGISTERED") {
-              console.error(`     not registered — visit ${host} to register`)
+              console.error(`     Fix: visit ${host} to register  →  canon publish`)
             } else {
-              console.error(`     ${result.error}`)
+              console.error(`     Error: ${result.error}`)
+              console.error(`     Fix:   canon publish  (retry when resolved)`)
             }
           }
         }
@@ -209,6 +220,9 @@ export const pushCommand = new Command("push")
       }
     } else {
       console.log("  4/4  publish skipped (--no-publish)")
+      console.log("")
+      console.log("  ⚠ Code pushed to GitHub but NOT published on opencanon.")
+      console.log(`     Run: canon publish  to sync web app`)
     }
 
     console.log("")

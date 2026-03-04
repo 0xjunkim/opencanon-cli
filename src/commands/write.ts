@@ -1,6 +1,6 @@
 import { Command } from "commander"
 import { resolve, join } from "node:path"
-import { mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, statSync, createWriteStream } from "node:fs"
+import { mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, statSync, renameSync, unlinkSync } from "node:fs"
 import { createHash } from "node:crypto"
 import { metadataTemplate } from "../templates/metadata.js"
 import { loadConfig } from "./login.js"
@@ -116,7 +116,8 @@ export const writeCommand = new Command("write")
   .description("Scaffold next chapter with lossy cross-referenced context")
   .argument("<episode-slug>", "Episode slug (e.g. ep02-title)")
   .option("--generate", "Generate prose via opencanon web app (requires: canon login)")
-  .option("--direction <text>", "Writing direction hint (used with --generate)", "continue naturally")
+  .option("--direction <text>", "Writing direction hint (used with --generate, max 280 chars)", "continue naturally")
+  .option("--overwrite", "Allow overwriting existing chapter-01.md when using --generate")
   .option("--no-refs", "Skip cross-referencing other novels")
   .option("--no-notebook", "Skip notebook context")
   .option("--host <url>", "opencanon host", OPENCANON_HOST)
@@ -124,6 +125,7 @@ export const writeCommand = new Command("write")
   .action(async (episodeSlug: string, opts: {
     generate: boolean
     direction: string
+    overwrite: boolean
     refs: boolean
     notebook: boolean
     host: string
@@ -136,11 +138,21 @@ export const writeCommand = new Command("write")
     const owner = detectOwner(root)
     const repo = detectRepo(root)
 
+    // Validate episode slug format early
+    if (!/^[a-z0-9][a-z0-9_-]*$/.test(episodeSlug)) {
+      console.error(`Error: invalid episode slug "${episodeSlug}"`)
+      console.error(`       must match /^[a-z0-9][a-z0-9_-]*$/ — lowercase, hyphens/underscores only`)
+      process.exit(1)
+    }
+
+    // Truncate direction to 280 chars
+    const direction = (opts.direction ?? "continue naturally").slice(0, 280)
+
     const api = token ? new ApiClient(host, token) : null
 
     console.log("")
     console.log(`[canon write] ${episodeSlug}`)
-    if (opts.generate) console.log(`[direction] ${opts.direction}`)
+    if (opts.generate) console.log(`[direction] ${direction}`)
     console.log("컨텍스트를 수집하고 있습니다...\n")
 
     const refEntries: RefEntry[] = []
@@ -170,8 +182,12 @@ export const writeCommand = new Command("write")
           createdAt: now,
         })
         console.log(`  ✓ 수첩 참조: (#${sha12(notebook)})`)
+      } else if (!token) {
+        console.log(`  ○ 수첩: 토큰 없음 — canon login 후 소셜 시그널 포함`)
       } else {
-        console.log(`  ○ 수첩: 비어있거나 토큰 없음`)
+        // Notebook empty — warn: X/Moltbook may not be connected
+        console.log(`  ⚠ 수첩 비어있음 — opencanon.co/settings 에서 X/Moltbook 연동 확인`)
+        console.log(`    (소셜 시그널 없이 self + cross 참조만으로 생성됩니다)`)
       }
     }
 
@@ -245,14 +261,19 @@ export const writeCommand = new Command("write")
 
     // ── ④ Generate or scaffold ────────────────────────────────────────────
     if (opts.generate && api) {
-      console.log(`\n생성 중... (direction: ${opts.direction})\n`)
-
-      if (existsSync(chapterPath)) {
-        console.log(`  ⚠ ${chapterPath} already exists — overwriting with generated content`)
+      // Guard: irreversibility — require --overwrite to replace existing chapter
+      if (existsSync(chapterPath) && !opts.overwrite) {
+        console.error(`\n  ✗ ${chapterPath} already exists`)
+        console.error(`    opencanon은 불가역 원칙 — 기존 챕터를 덮어쓰려면 --overwrite 를 명시하세요`)
+        console.error(`    또는 새 에피소드 슬러그를 사용하세요 (권장)`)
+        process.exit(1)
       }
+
+      console.log(`\n생성 중... (direction: ${direction})\n`)
 
       const refHeader = buildRefHeader(refEntries)
       let generated = ""
+      const tmpPath = chapterPath + ".tmp"
 
       try {
         process.stdout.write("  ")
@@ -260,7 +281,7 @@ export const writeCommand = new Command("write")
           owner,
           repo,
           episode: episodeSlug,
-          direction: opts.direction,
+          direction,
           refs: refEntries,
         })) {
           process.stdout.write(chunk)
@@ -268,16 +289,24 @@ export const writeCommand = new Command("write")
         }
         console.log("\n")
 
-        // Write ref header + generated prose
-        writeFileSync(chapterPath, `${refHeader}\n\n${generated}`)
+        if (!generated.trim()) {
+          throw new Error("generation returned empty content")
+        }
+
+        // Atomic write: tmp → rename (prevents partial file on SSE drop)
+        writeFileSync(tmpPath, `${refHeader}\n\n${generated}`)
+        renameSync(tmpPath, chapterPath)
         console.log(`  ✓ 챕터 생성 (AI): stories/${episodeSlug}/chapter-01.md`)
 
       } catch (err: unknown) {
+        // Clean up temp file if it exists
+        try { if (existsSync(tmpPath)) unlinkSync(tmpPath) } catch { /* ignore */ }
+
         const message = err instanceof Error ? err.message : String(err)
         console.error(`\n  ✗ 생성 실패: ${message}`)
         console.log(`  → scaffold 모드로 폴백합니다`)
         if (!existsSync(chapterPath)) {
-          writeFileSync(chapterPath, buildScaffold(episodeSlug, refEntries, opts.direction))
+          writeFileSync(chapterPath, buildScaffold(episodeSlug, refEntries, direction))
         }
         console.log(`  ✓ 챕터 scaffold: stories/${episodeSlug}/chapter-01.md`)
       }
@@ -285,7 +314,7 @@ export const writeCommand = new Command("write")
     } else {
       // Plain scaffold
       if (!existsSync(chapterPath)) {
-        writeFileSync(chapterPath, buildScaffold(episodeSlug, refEntries, opts.direction))
+        writeFileSync(chapterPath, buildScaffold(episodeSlug, refEntries, direction))
         console.log(`\n  ✓ 챕터 scaffold: stories/${episodeSlug}/chapter-01.md`)
       } else {
         console.log(`\n  ○ 챕터 이미 존재: stories/${episodeSlug}/chapter-01.md`)
@@ -297,9 +326,9 @@ export const writeCommand = new Command("write")
     console.log("────────────────────────────────────────")
     console.log(`에피소드:   ${episodeSlug}`)
     console.log(`참조 수:    ${refEntries.length}개 (비가역 hash)`)
-    console.log(`참조 기록:  .canon-refs.json`)
+    console.log(`참조 기록:  .canon-refs.json (gitignored — private)`)
     console.log(`생성:       ${opts.generate ? "웹앱 AI" : "scaffold"}`)
-    console.log(`direction:  ${opts.direction}`)
+    console.log(`direction:  ${direction}`)
     console.log("")
     console.log("다음 단계:")
     if (!opts.generate) {

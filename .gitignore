@@ -1,3 +1,5 @@
 node_modules/
 dist/
 *.tgz
+# Canon refs: contains notebook previews + social signal snippets — never commit
+.canon-refs.json
