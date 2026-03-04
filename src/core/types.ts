@@ -164,6 +164,9 @@ export type CheckIdV3 =
   | "canon_version_match"
   | "contributor_valid"
   | "derived_from_valid"
+  | "episode_id_format"
+  | "title_bilingual"
+  | "synopsis_bilingual"
 
 export interface CheckResultV3 {
   id: CheckIdV3

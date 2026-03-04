@@ -53,6 +53,51 @@ export class ApiClient {
     }
   }
 
+  // ─── Axis 3: Auth verify ─────────────────────────────────────────────────
+  /**
+   * Verify token is valid against the web app.
+   * GET /api/auth/verify
+   * Returns { valid: true, owner: string } or { valid: false, reason: string }
+   */
+  async verifyToken(): Promise<{ valid: true; owner: string } | { valid: false; reason: string }> {
+    try {
+      const res = await fetch(`${this.host}/api/auth/verify`, {
+        headers: this.headers(),
+      })
+      if (res.status === 401) return { valid: false, reason: "invalid or expired token" }
+      if (!res.ok) return { valid: false, reason: `server error: ${res.status}` }
+      const data = await res.json() as { owner?: string; username?: string }
+      const owner = data.owner ?? data.username ?? "unknown"
+      return { valid: true, owner }
+    } catch (e) {
+      return { valid: false, reason: `unreachable: ${e instanceof Error ? e.message : String(e)}` }
+    }
+  }
+
+  // ─── Axis 4: Registry check ───────────────────────────────────────────────
+  /**
+   * Check if a canon repo is registered on the web app.
+   * GET /api/canon/{owner}/{repo}/status
+   * Returns { registered: true, canonId: string } or { registered: false }
+   */
+  async getCanonStatus(owner: string, repo: string): Promise<
+    { registered: true; canonId: string; score?: number } |
+    { registered: false; reason?: string }
+  > {
+    try {
+      const res = await fetch(`${this.host}/api/canon/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/status`, {
+        headers: this.headers(),
+      })
+      if (res.status === 404) return { registered: false, reason: "not found in registry" }
+      if (!res.ok) return { registered: false, reason: `server error: ${res.status}` }
+      const data = await res.json() as { canon_id?: string; canonId?: string; score?: number }
+      const canonId = data.canon_id ?? data.canonId ?? ""
+      return { registered: true, canonId, score: data.score }
+    } catch (e) {
+      return { registered: false, reason: `unreachable: ${e instanceof Error ? e.message : String(e)}` }
+    }
+  }
+
   // ─── Publish ──────────────────────────────────────────────────────────────
   async publish(owner: string, repo: string): Promise<{ url: string } | { error: string; code?: string }> {
     try {

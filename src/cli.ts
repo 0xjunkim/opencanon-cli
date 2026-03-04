@@ -10,6 +10,7 @@ import { loginCommand } from "./commands/login.js"
 import { publishCommand } from "./commands/publish.js"
 import { writeCommand } from "./commands/write.js"
 import { pushCommand } from "./commands/push.js"
+import { verifyCommand } from "./commands/verify.js"
 import { migrateCommand } from "./commands/migrate.js"
 
 const require = createRequire(import.meta.url)
@@ -31,6 +32,7 @@ program.addCommand(initCommand)
 program.addCommand(newCommand)
 program.addCommand(writeCommand)
 program.addCommand(pushCommand)
+program.addCommand(verifyCommand)
 program.addCommand(migrateCommand)
 
 program.parse()

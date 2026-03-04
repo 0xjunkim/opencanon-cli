@@ -365,6 +365,65 @@ export function checkDerivedFrom(
   return checkV3("derived_from_valid", true)
 }
 
+// ── Axis 2: Format checks (web app pipeline alignment) ───────────────────────
+
+const EPISODE_SLUG_RE = /^[a-z0-9][a-z0-9_-]*$/
+
+/**
+ * Validate episode slug format matches web app ID constraint.
+ * Rule: /^[a-z0-9][a-z0-9_-]*$/ — lowercase alphanumeric, hyphens, underscores.
+ */
+export function checkEpisodeIdFormat(meta: StoryMetadata | StoryMetadata_v1_3): CheckResultV3 {
+  const id = meta.id
+  if (!EPISODE_SLUG_RE.test(id)) {
+    return checkV3("episode_id_format", false,
+      `id "${id}" must match /^[a-z0-9][a-z0-9_-]*$/ — lowercase, hyphens/underscores only`)
+  }
+  return checkV3("episode_id_format", true)
+}
+
+/**
+ * Validate title has non-empty ko and en strings (v1.2 bilingual object).
+ * Web app requires both fields for rendering.
+ */
+export function checkTitleBilingual(meta: StoryMetadata): CheckResultV3 {
+  const { ko, en } = meta.title
+  if (!ko || ko.trim().length === 0) {
+    return checkV3("title_bilingual", false, "title.ko is empty")
+  }
+  if (!en || en.trim().length === 0) {
+    return checkV3("title_bilingual", false, "title.en is empty")
+  }
+  return checkV3("title_bilingual", true)
+}
+
+/**
+ * Validate synopsis has non-empty ko and en strings (v1.2 bilingual object).
+ * Web app requires both fields for episode listing.
+ */
+export function checkSynopsisBilingual(meta: StoryMetadata): CheckResultV3 {
+  const { ko, en } = meta.synopsis
+  if (!ko || ko.trim().length === 0) {
+    return checkV3("synopsis_bilingual", false, "synopsis.ko is empty")
+  }
+  if (!en || en.trim().length === 0) {
+    return checkV3("synopsis_bilingual", false, "synopsis.en is empty")
+  }
+  return checkV3("synopsis_bilingual", true)
+}
+
+/**
+ * Run all 3 format checks for a story (Axis 2).
+ * Returns array of CheckResultV3.
+ */
+export function checkFormat(meta: StoryMetadata): CheckResultV3[] {
+  return [
+    checkEpisodeIdFormat(meta),
+    checkTitleBilingual(meta),
+    checkSynopsisBilingual(meta),
+  ]
+}
+
 /**
  * Run all 8 checks for a single v1.3 story.
  * Reuses shared checks by casting common fields.

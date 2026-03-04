@@ -11,6 +11,8 @@ import { execSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { loadConfig } from "./login.js"
 import { ApiClient } from "../api.js"
+import { loadRepoFromFs } from "../adapters/fs.js"
+import { validateRepo, checkFormat } from "../core/validate.js"
 
 function run(cmd: string, cwd: string): string {
   return execSync(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] })
@@ -73,21 +75,37 @@ export const pushCommand = new Command("push")
     if (opts.dryRun) console.log("  (dry run — no changes will be made)")
     console.log("")
 
-    // ── Step 1: canon check ───────────────────────────────────────────────
-    process.stdout.write("  1/4  canon check...  ")
+    // ── Step 1: multi-axis check (structure + format) ─────────────────────
+    process.stdout.write("  1/4  canon verify... ")
     if (!opts.dryRun) {
+      let verifyFails = 0
+
+      // Axis 1: structure
       try {
-        run("canon check", root)
-        console.log("✓")
-      } catch (e: unknown) {
-        console.log("✗")
-        if (e && typeof e === "object" && "stdout" in e) {
-          process.stdout.write((e as { stdout: string }).stdout)
+        const model = loadRepoFromFs(root)
+        if (model.stories.size > 0) {
+          const report = validateRepo(model)
+          for (const story of report.stories) {
+            for (const c of story.checks) {
+              if (!c.pass) verifyFails++
+            }
+          }
+          // Axis 2: format
+          for (const [, parsed] of model.stories) {
+            const formatChecks = checkFormat(parsed.meta)
+            for (const c of formatChecks) {
+              if (!c.pass) verifyFails++
+            }
+          }
         }
-        console.error("\n     compliance errors detected — fix before pushing")
-        console.error("     run: canon check  to see details")
+      } catch { verifyFails++ }
+
+      if (verifyFails > 0) {
+        console.log("✗")
+        console.error(`\n     ${verifyFails} validation failure(s) — run: canon verify  for details`)
         process.exit(1)
       }
+      console.log("✓")
     } else {
       console.log("(skipped)")
     }
